@@ -1,0 +1,10 @@
+# ns-3 / build outputs
+build/
+cmake-cache/
+*.o
+# per-run traces (regenerate with --trace=true)
+rudp-trace-*.csv
+__pycache__/
+# keep final results under results/<name>/ ; ignore stray root copies
+/results.csv
+/*.png
