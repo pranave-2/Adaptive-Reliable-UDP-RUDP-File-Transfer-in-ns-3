@@ -217,7 +217,9 @@ class Sender
            double fixedRto,
            uint32_t maxWin,
            double corrupt,
-           std::ofstream* trace)
+           std::ofstream* trace,
+           double initCwnd,
+           double ai)
         : m_node(n),
           m_peer(peer),
           m_port(port),
@@ -233,7 +235,8 @@ class Sender
         m_everSent.assign(g_N, 0);
         m_retxFlag.assign(g_N, 0);
         m_rto = adaptive ? 0.3 : fixedRto; // adaptive starts with a conservative guess
-        m_cwnd = 4.0;
+        m_cwnd = initCwnd; // Result 1 used 4.0
+        m_ai = ai;         // Result 1 used 1.0 packet per round trip
         m_ssthresh = maxWin;
     }
 
@@ -369,7 +372,7 @@ class Sender
             {
                 for (uint32_t i = 0; i < newly; i++)
                 {
-                    m_cwnd += (m_cwnd < m_ssthresh) ? 1.0 : 1.0 / m_cwnd; // slow start / AIMD
+                    m_cwnd += (m_cwnd < m_ssthresh) ? 1.0 : m_ai / m_cwnd; // slow start / AIMD
                 }
                 m_cwnd = std::min<double>(m_cwnd, m_maxWin);
             }
@@ -423,6 +426,7 @@ class Sender
     uint32_t m_next = 0;
     int m_dup = 0;
     double m_cwnd;
+    double m_ai = 1.0;
     double m_ssthresh;
     double m_rto;
     double m_srtt = 0;
@@ -483,6 +487,8 @@ main(int argc, char* argv[])
     uint32_t fixedWin = 16;
     uint32_t maxWin = 128;
     bool trace = false;
+    double initCwnd = 4.0; // initial congestion window (packets)
+    double ai = 1.0;       // additive increase, packets per round trip
 
     CommandLine cmd(__FILE__);
     cmd.AddValue("mode", "tcp | fixed | adaptive", mode);
@@ -497,6 +503,8 @@ main(int argc, char* argv[])
     cmd.AddValue("maxWin", "max window for adaptive mode", maxWin);
     cmd.AddValue("corrupt", "probability a received packet gets a corrupted byte", corrupt);
     cmd.AddValue("trace", "write cwnd/rto trace csv", trace);
+    cmd.AddValue("initCwnd", "adaptive mode: initial window in packets", initCwnd);
+    cmd.AddValue("ai", "adaptive mode: additive increase in packets per round trip", ai);
     cmd.Parse(argc, argv);
 
     RngSeedManager::SetSeed(12345);
@@ -586,7 +594,9 @@ main(int argc, char* argv[])
               fixedRto,
               maxWin,
               corrupt,
-              trace ? &tr : nullptr);
+              trace ? &tr : nullptr,
+              initCwnd,
+              ai);
     Simulator::Schedule(Seconds(0.0), &Receiver::Start, &rx);
     Simulator::Schedule(Seconds(0.1), &Sender::Start, &tx);
 

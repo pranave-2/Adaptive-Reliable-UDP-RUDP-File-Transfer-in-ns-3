@@ -119,7 +119,9 @@ adaptive-rudp-ns3/
 │   └── rudp-exp.cc          # the whole simulator: header, sender, receiver, TCP baseline
 ├── scripts/
 │   ├── install.sh           # copy rudp-exp.cc into ns-3 and build
-│   ├── run_all.sh           # run the full 210-run experiment -> results.csv
+│   ├── run_all.sh           # Result 1: full 210-run experiment -> results.csv
+│   ├── run_result2.sh       # Result 2: 4 adaptive variants x 14 conditions x 5 seeds -> results2.csv
+│   ├── compare_result2.py   # Result 2 vs Result 1: tables + graphs
 │   ├── plot.py              # results.csv -> graphs + summary
 │   ├── summarize.py         # per-condition tables + sanity checks
 │   └── demo.sh              # 2-minute live demo
@@ -194,6 +196,8 @@ Pass them to `rudp-exp`, for example `./ns3 run --no-build "rudp-exp --mode=adap
 | `--maxWin` | `128` | window cap for `adaptive` mode |
 | `--corrupt` | `0` | probability that a received packet has one byte altered (tests the checksum) |
 | `--trace` | `false` | write `rudp-trace-<mode>.csv` with window, RTO, SRTT over time |
+| `--initCwnd` | `4` | adaptive mode: initial window in packets (Result 1 value) |
+| `--ai` | `1` | adaptive mode: additive increase in packets per round trip (Result 1 value) |
 
 ## Reading the output
 
@@ -284,6 +288,55 @@ For fixed RUDP (W = 16) over the five delays this bound is 5.00, 3.07, 1.26, 0.6
 with 1 % loss and timeouts. A fixed 200 ms timeout also fires spuriously once the RTT
 exceeds 200 ms (one-way delay above about 99 ms at 5 Mbps).
 
+### Result 2: larger initial window and faster window growth
+
+**Question.** Result 1 suggested that adaptive RUDP is slow on long-delay paths because
+its window regrows by only one packet per round trip after a loss. Does a larger initial
+window and/or a larger additive increase fix that?
+
+**What changes.** Only two adaptive-sender parameters, now command-line options
+(`--initCwnd`, `--ai`). Their defaults are the Result 1 values, so Result 1 is still
+reproducible with the same code. Everything else (timeout rules, back-off, fast
+retransmit, 128-packet cap, loss reaction) is unchanged.
+
+| Variant | `--initCwnd` | `--ai` | Purpose |
+|---|---:|---:|---|
+| `r1_control` | 4 | 1 | Result 1 settings; must reproduce Result 1 exactly (sanity check) |
+| `r2a_ai4` | 4 | 4 | faster growth only |
+| `r2b_iw10` | 10 | 1 | larger initial window only (10 is the value in RFC 6928) |
+| `r2c_iw10_ai4` | 10 | 4 | both |
+
+`tcp` and `fixed` are not rerun; their Result 1 numbers are reused. 4 variants x 14
+conditions x 5 seeds = 280 runs.
+
+**Expectation (to be confirmed by the data).** The initial window only affects the first
+few round trips, so its effect should be small on a 1,000-packet transfer. The additive
+increase acts after every loss, so it is the more likely fix for the long-delay case.
+A 128-packet cap may still limit the 200 ms case (bandwidth-delay product about 251 packets).
+
+**How to run.**
+
+```bash
+git checkout -b result-2
+./scripts/install.sh                       # rebuild with the new options
+cd $NS3_DIR
+# sanity check: defaults must still give the Result 1 line below
+./ns3 run --no-build "rudp-exp --mode=adaptive --loss=0.02"
+#   RESULT,adaptive,0.02,10,5,1,3.4687,2.3063,1223,223,0,1
+cd -
+./scripts/run_result2.sh                   # about 10 minutes, writes $NS3_DIR/results2.csv
+cd $NS3_DIR && python3 ~/adaptive-rudp-ns3/scripts/compare_result2.py
+mkdir -p ~/adaptive-rudp-ns3/results/result2
+cp results2.csv r2_*.png ~/adaptive-rudp-ns3/results/result2/
+```
+
+`compare_result2.py` prints a control check (max time difference between `r1_control`
+and Result 1 adaptive, which must be 0), the mean per sweep, per-condition completion
+times, and writes `r2_time_vs_delay.png`, `r2_time_vs_loss.png`,
+`r2_goodput_vs_rate.png` and `r2_summary.png`.
+
+**Results.** _To be filled in after the run (data in `results/result2/`)._
+
 ## Known limitations
 
 - Go-Back-N, not Selective Repeat: after a loss, packets that already arrived are
@@ -305,7 +358,8 @@ exceeds 200 ms (one-way delay above about 99 ms at 5 Mbps).
 - [x] Fixed and adaptive RUDP, TCP baseline, integrity check
 - [x] **Result 1**: 210-run baseline
 - [ ] **Result 2**: larger initial window and larger window increase per round trip
-      (only these parameters change; rerun the same 210 runs and compare with Result 1)
+      (only these parameters change; same 14 conditions and 5 seeds; compare with Result 1).
+      Code and scripts are in place; see [Result 2](#result-2-larger-initial-window-and-faster-window-growth)
 - [ ] Selective Repeat with a SACK bitmap in the ACK
 - [ ] Raise the 128-packet cap for high bandwidth-delay paths
 - [ ] FIN/FIN_ACK handshake and a file-size field
