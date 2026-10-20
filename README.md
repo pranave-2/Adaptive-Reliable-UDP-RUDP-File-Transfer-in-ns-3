@@ -335,7 +335,63 @@ and Result 1 adaptive, which must be 0), the mean per sweep, per-condition compl
 times, and writes `r2_time_vs_delay.png`, `r2_time_vs_loss.png`,
 `r2_goodput_vs_rate.png` and `r2_summary.png`.
 
-**Results.** _To be filled in after the run (data in `results/result2/`)._
+**Results.** 280 runs, all completed, all files intact. The control variant reproduced
+Result 1 exactly (maximum time difference 0 s over 70 matched runs).
+
+Mean over each sweep:
+
+| Sweep | Variant | Time (s) | Goodput (Mbps) | Retransmissions | Timeouts |
+|---|---|---:|---:|---:|---:|
+| Loss | TCP | 3.398 | 3.195 | n/a | n/a |
+| Loss | `r1_control` (Result 1) | 3.714 | 2.568 | 259.4 | 3.40 |
+| Loss | `r2a_ai4` | **2.874** | 2.963 | 445.4 | 1.16 |
+| Loss | `r2b_iw10` | 3.672 | 2.597 | 266.6 | 3.44 |
+| Loss | `r2c_iw10_ai4` | 2.882 | 2.953 | 489.1 | 1.08 |
+| Delay | TCP | 6.042 | 2.743 | n/a | n/a |
+| Delay | `r1_control` (Result 1) | 13.747 | 1.571 | 211.6 | 0.40 |
+| Delay | `r2a_ai4` | **11.501** | 1.793 | 440.8 | 0.44 |
+| Delay | `r2b_iw10` | 14.553 | 1.588 | 227.0 | 0.40 |
+| Delay | `r2c_iw10_ai4` | 11.660 | 1.730 | 501.3 | 0.44 |
+| Rate | TCP | 3.753 | 4.483 | n/a | n/a |
+| Rate | `r1_control` (Result 1) | 5.222 | 2.095 | 231.8 | 0.30 |
+| Rate | `r2a_ai4` | **4.956** | 2.944 | 392.0 | 0.40 |
+| Rate | `r2b_iw10` | 5.137 | 2.155 | 237.0 | 0.30 |
+| Rate | `r2c_iw10_ai4` | 5.270 | 2.806 | 480.9 | 0.30 |
+
+**Findings**
+
+- **The initial window does not matter.** `r2b_iw10` is within about 1-6 % of the control
+  everywhere (median change -1.5 % over the 70 paired runs), and adding it to `ai=4`
+  (`r2c`) gives no gain over `r2a`. It only affects the first few round trips.
+- **A larger additive increase helps a lot.** `r2a_ai4` was faster than the control in 47 of
+  70 paired runs and slower in 15 (median change -22 %). Loss sweep: 23 % faster, and
+  faster than TCP on average (2.87 s vs 3.40 s), because it beats TCP at 3 % and 5 % loss
+  (3.07 s vs 4.26 s, 4.13 s vs 6.79 s) while TCP is still faster at 0-2 % loss.
+- **The delay result was partly a window-growth problem.** `ai=4` cut completion time at
+  50 ms from 8.13 s to 5.00 s and at 100 ms from 15.77 s to 9.52 s (TCP: 4.80 s and
+  8.36 s). It did not fix 200 ms (39.0 s to 37.7 s; five-seed range 24.7-49.1 s, so
+  the change is within noise). TCP takes 12.8 s there.
+- **Fast links gain, slow links lose.** At 10 and 20 Mbps `ai=4` is close to TCP
+  (2.07 s vs 2.07 s, 1.93 s vs 1.82 s). At 1 Mbps it is slower (13.0 s vs 10.7 s) and
+  retransmits more (547 vs 240).
+- **The price is retransmissions.** `ai=4` retransmits 69-108 % more packets
+  (loss sweep 259 to 445) while timeouts fall (3.4 to 1.2 per run).
+- **Occasional retransmission storms.** In 4 of 70 `r2a` runs, nearly the whole file was
+  sent twice (about 1,040 retransmissions); the control never did this. Those runs are
+  also slower (for example 3.41 s vs 2.08 s at 5 ms delay).
+
+**Interpretation (not yet proven by a trace).** At 200 ms and 1 % loss the transfer looks
+loss-recovery-limited, not growth-limited: a window-controlled flow settles near
+1.22/sqrt(p) = about 12 packets per round trip, which at a 0.4 s round trip is roughly
+80 round trips, or about 33 s, close to the observed 39 s. Go-Back-N then resends whole
+windows after every loss, and TCP wins because it retransmits only what was lost.
+The retransmission storms and the 1 Mbps penalty are consistent with the window
+overshooting the link queue, but queue drops were not measured.
+
+**Conclusion for Result 2.** The best setting is `initCwnd=4, ai=4`. It is a real improvement
+under loss, moderate delay and fast links, but it does not close the gap to TCP at long
+delay and it increases wasted retransmissions. The next change should therefore target
+loss recovery itself (selective retransmission) rather than window growth.
 
 ## Known limitations
 
